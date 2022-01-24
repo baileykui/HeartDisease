@@ -1,0 +1,771 @@
+---
+title: "Kaggle Final RMD"
+author: "Bailey Kui, Christy Hui, Shirley Tang"
+date: "Due Sunday, December 5, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Let's reset our data, clean up NAs, and then run models with NAs fully cleaned up.
+
+``` {r}
+heart.train <- read.csv("HDtrainNew.csv")
+heart.test <- read.csv("HDtestNoYNew.csv")
+heart.train[which(heart.train == "F", arr.ind = TRUE)] <- "Female"
+heart.train[which(heart.train == "M", arr.ind = TRUE)] <- "Male"
+heart.test[which(heart.test == "F", arr.ind = TRUE)] <- "Female"
+heart.test[which(heart.test == "M", arr.ind = TRUE)] <- "Male"
+heart.train <- heart.train[, -1]
+heart.test <- heart.test[, -1]
+heart.train[which(is.na(heart.train$smoking_status)), 18] <- "Unknown"
+heart.test[which(is.na(heart.test$smoking_status)), 18] <- "Unknown"
+for (i in 1:4220){
+  if(heart.train$Cholesterol[i] == 0) {
+    heart.train$Cholesterol[i] <- mean(heart.train$Cholesterol)
+  }
+}
+
+for (i in 1:4220){
+  if(heart.train$RestingBP[i] == 0) {
+    heart.train$RestingBP[i] <- mean(heart.train$RestingBP)
+  }
+}
+
+table(heart.train$ever_married) # Yes is most often
+for (i in 1:4220){
+  if(is.na(heart.train$ever_married[i])) {
+    heart.train$ever_married[i] <- "Yes"
+  }
+}
+
+table(heart.train$work_type) # works is most often
+for (i in 1:4220){
+  if(is.na(heart.train$work_type[i])) {
+    heart.train$work_type[i] <- "works"
+  }
+}
+
+table(heart.train$Residence_type) # Urban is most often
+for (i in 1:4220){
+  if(is.na(heart.train$Residence_type[i])) {
+    heart.train$Residence_type[i] <- "Urban"
+  }
+}
+
+for (i in 1:1808){
+  if(heart.test$Cholesterol[i] == 0) {
+    heart.test$Cholesterol[i] <- mean(heart.test$Cholesterol)
+  }
+}
+
+for (i in 1:1808){
+  if(heart.test$RestingBP[i] == 0) {
+    heart.test$RestingBP[i] <- mean(heart.test$RestingBP)
+  }
+}
+
+table(heart.test$ever_married)
+for (i in 1:1808){
+  if(is.na(heart.test$ever_married[i])) {
+    heart.test$ever_married[i] <- "Yes"
+  }
+}
+
+table(heart.test$work_type)
+for (i in 1:1808){
+  if(is.na(heart.test$work_type[i])) {
+    heart.test$work_type[i] <- "works"
+  }
+}
+
+table(heart.test$Residence_type)
+for (i in 1:1808){
+  if(is.na(heart.test$Residence_type[i])) {
+    heart.test$Residence_type[i] <- "Urban"
+  }
+}
+```
+
+## EDA: numerical
+
+## Matrix plot
+```{r}
+# read in training dataset
+HDtrain <- read.csv("HDtrainNew.csv")
+
+library(corrplot)
+library(GGally)
+library(ggplot2)
+library(gridExtra)
+
+# numerical: Age, RestingBP, Cholesterol, MaxHR, Oldpeak, avg_glucose_level, bmi
+vars <- data.frame(HDtrain["Age"], HDtrain["RestingBP"], HDtrain["Cholesterol"], HDtrain["MaxHR"], HDtrain["Oldpeak"], HDtrain["avg_glucose_level"], HDtrain["bmi"])
+ggpairs(vars) # matrix plot
+```
+
+## Density plot
+
+```{r}
+# density plots for numerical predictors based on HeartDisease
+# Age, RestingBP, Cholesterol, MaxHR, Oldpeak, avg_glucose_level, bmi
+g1 <- ggplot(HDtrain, aes(x = Age)) + geom_density(aes(color = HeartDisease))
+g2 <- ggplot(HDtrain, aes(x = RestingBP)) + geom_density(aes(color = HeartDisease))
+g3 <- ggplot(HDtrain, aes(x = Cholesterol)) + geom_density(aes(color = HeartDisease))
+g4 <- ggplot(HDtrain, aes(x = MaxHR)) + geom_density(aes(color = HeartDisease))
+g5 <- ggplot(HDtrain, aes(x = Oldpeak)) + geom_density(aes(color = HeartDisease))
+g6 <- ggplot(HDtrain, aes(x = avg_glucose_level)) + geom_density(aes(color = HeartDisease))
+g7 <- ggplot(HDtrain, aes(x = bmi)) + geom_density(aes(color = HeartDisease))
+grid.arrange(g1, g2, g3, g4, g5, g6, g7, nrow=4)
+```
+
+## EDA: categorical
+
+```{r}
+# stacked bar chart of Sex variable, demonstrating differing levels that need to be recoded
+b1 <- ggplot(HDtrain, aes(x = Sex, fill = HeartDisease)) + geom_bar()
+b1
+```
+
+## Now we prep for LDA, QDA, and KNN
+
+``` {r}
+# scale
+heart.train$Age = scale(heart.train$Age)
+heart.train$RestingBP = scale(heart.train$RestingBP)
+heart.train$Cholesterol = scale(heart.train$Cholesterol)
+heart.train$MaxHR = scale(heart.train$MaxHR)
+heart.train$Oldpeak = scale(heart.train$Oldpeak)
+heart.train$avg_glucose_level = scale(heart.train$avg_glucose_level)
+heart.train$bmi = scale(heart.train$bmi)
+```
+
+## Try a GLM model and see what predictors are now significant
+
+``` {r}
+summary(glm(as.factor(heart.train$HeartDisease) ~ .,
+            family = binomial(), data = heart.train))
+```
+
+## Let's try regsubsets and see what are our top 10 predictors will be
+
+``` {r}
+library(leaps)
+subby.forward = regsubsets(as.factor(HeartDisease) ~., data = heart.train, nvmax = 19, method = "forward")
+summary(subby.forward)
+```
+
+``` {r}
+library(leaps)
+subby.backward = regsubsets(as.factor(HeartDisease) ~., data = heart.train, nvmax = 19, method = "backward")
+summary(subby.backward)
+```
+
+## Try LDAs Model with 6-10 predictors 
+
+### First try 10 predictors without CV
+
+``` {r}
+library(MASS)
+library(caret)
+HD.lda10 = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType + ever_married,
+             data = heart.train)
+pred.HD.lda10.train = predict(HD.lda10, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.lda10.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.lda10.cv = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType + ever_married,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.lda10.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 9 predictors without CV
+
+``` {r}
+library(MASS)
+library(caret)
+HD.lda9 = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType,
+             data = heart.train)
+pred.HD.lda9.train = predict(HD.lda9, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.lda9.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.lda9.cv = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.lda9.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 8 predictors without CV
+
+``` {r}
+library(MASS)
+library(caret)
+HD.lda8 = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol,
+             data = heart.train)
+pred.HD.lda8.train = predict(HD.lda8, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.lda8.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.lda8.cv = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.lda8.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 7 predictors without CV
+
+``` {r}
+library(MASS)
+library(caret)
+HD.lda7 = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS,
+             data = heart.train)
+pred.HD.lda7.train = predict(HD.lda7, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.lda7.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.lda7.cv = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.lda7.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 6 predictors without CV
+
+``` {r}
+library(MASS)
+library(caret)
+HD.lda6 = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope,
+             data = heart.train)
+pred.HD.lda6.train = predict(HD.lda6, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.lda6.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.lda6.cv = lda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.lda6.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+
+## Try QDAs Model with 6-10 predictors 
+
+### Now try 10 predictors without CV
+
+``` {r}
+HD.qda10 = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType + ever_married,
+             data = heart.train)
+pred.HD.qda10.train = predict(HD.qda10, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.qda10.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.qda10.cv = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType + ever_married,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.qda10.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 9 predictors without CV
+
+``` {r}
+HD.qda9 = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType,
+             data = heart.train)
+pred.HD.qda9.train = predict(HD.qda9, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.qda9.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.qda9.cv = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.qda9.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 8 predictors without CV
+
+``` {r}
+HD.qda8 = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol,
+             data = heart.train)
+pred.HD.qda8.train = predict(HD.qda8, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.qda8.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.qda8.cv = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.qda8.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 7 predictors without CV
+
+``` {r}
+HD.qda7 = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS,
+             data = heart.train)
+pred.HD.qda7.train = predict(HD.qda7, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.qda7.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.qda7.cv = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.qda7.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Now try 6 predictors without CV
+
+``` {r}
+HD.qda6 = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope,
+             data = heart.train)
+pred.HD.qda6.train = predict(HD.qda6, newdata = heart.train)
+confusionMatrix(as.factor(pred.HD.qda6.train$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+### Try LOOCV
+
+``` {r}
+HD.qda6.cv = qda(as.factor(HeartDisease) ~ Oldpeak + avg_glucose_level + MaxHR + stroke + ExerciseAngina + ST_Slope + FastingBS + Cholesterol + ChestPainType + ever_married,
+             data = heart.train,
+             CV = TRUE)
+confusionMatrix(as.factor(HD.qda7.cv$class),
+                as.factor(heart.train$HeartDisease))
+```
+
+## Try KNN with varying levels of K
+
+``` {r}
+library(class)
+HD.knn3 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 3)
+confusionMatrix(as.factor(HD.knn3), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn5 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 5)
+confusionMatrix(as.factor(HD.knn5), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn7 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 7)
+confusionMatrix(as.factor(HD.knn7), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn9 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 9)
+confusionMatrix(as.factor(HD.knn9), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn11 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 11)
+confusionMatrix(as.factor(HD.knn11), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn13 = knn(heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, c(2, 4, 5, 8, 10, 16, 17)], 
+              heart.train[, 20],
+              k = 13)
+confusionMatrix(as.factor(HD.knn13), as.factor(heart.train[, 20]))
+```
+
+## Try LOOCV KNN with varying levels of K
+
+``` {r}
+library(class)
+HD.knn3.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                    heart.train[, 20],
+                    k = 3)
+confusionMatrix(as.factor(HD.knn3.cv), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn5.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                    heart.train[, 20],
+                    k = 5)
+confusionMatrix(as.factor(HD.knn5.cv), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn7.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                    heart.train[, 20],
+                    k = 7)
+confusionMatrix(as.factor(HD.knn7.cv), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn9.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                    heart.train[, 20],
+                    k = 9)
+confusionMatrix(as.factor(HD.knn9.cv), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn11.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                     heart.train[, 20],
+                     k = 11)
+confusionMatrix(as.factor(HD.knn11.cv), as.factor(heart.train[, 20]))
+```
+
+``` {r}
+library(class)
+HD.knn13.cv = knn.cv(heart.train[, c(2, 4, 5, 8, 10, 16, 17)],
+                     heart.train[, 20],
+                     k = 13)
+confusionMatrix(as.factor(HD.knn13.cv), as.factor(heart.train[, 20]))
+```
+
+## Find Accuracy Rates and Plot
+
+### LDA
+
+``` {r}
+lda.misclass = c(mean(pred.HD.lda10.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.lda9.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.lda8.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.lda7.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.lda6.train$class != heart.train$HeartDisease))
+qplot(c(10, 9, 8, 7, 6), lda.misclass, xlab = "No. of Predictors", ylab = "LDA Misclassification Rate")
+
+1-mean(pred.HD.lda10.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.lda9.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.lda8.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.lda7.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.lda6.train$class != heart.train$HeartDisease)
+```
+
+``` {r}
+lda.cv.misclass = c(mean(HD.lda10.cv$class != heart.train$HeartDisease),
+                    mean(HD.lda9.cv$class != heart.train$HeartDisease),
+                    mean(HD.lda8.cv$class != heart.train$HeartDisease),
+                    mean(HD.lda7.cv$class != heart.train$HeartDisease),
+                    mean(HD.lda6.cv$class != heart.train$HeartDisease))
+qplot(c(10, 9, 8, 7, 6), lda.cv.misclass, xlab = "No. of Predictors", ylab = "LDA LOOCV Misclassification Rate")
+
+1-mean(HD.lda10.cv$class != heart.train$HeartDisease)
+1-mean(HD.lda9.cv$class != heart.train$HeartDisease)
+1-mean(HD.lda8.cv$class != heart.train$HeartDisease)
+1-mean(HD.lda7.cv$class != heart.train$HeartDisease)
+1-mean(HD.lda6.cv$class != heart.train$HeartDisease)
+```
+
+### QDA
+
+``` {r}
+qda.misclass = c(mean(pred.HD.qda10.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.qda9.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.qda8.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.qda7.train$class != heart.train$HeartDisease),
+                 mean(pred.HD.qda6.train$class != heart.train$HeartDisease))
+qplot(c(10, 9, 8, 7, 6), qda.misclass, xlab = "No. of Predictors", ylab = "QDA Misclassification Rate")
+1-mean(pred.HD.qda10.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.qda9.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.qda8.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.qda7.train$class != heart.train$HeartDisease)
+1-mean(pred.HD.qda6.train$class != heart.train$HeartDisease)
+
+```
+
+``` {r}
+qda.cv.misclass = c(mean(HD.qda10.cv$class != heart.train$HeartDisease),
+                    mean(HD.qda9.cv$class != heart.train$HeartDisease),
+                    mean(HD.qda8.cv$class != heart.train$HeartDisease),
+                    mean(HD.qda7.cv$class != heart.train$HeartDisease),
+                    mean(HD.qda6.cv$class != heart.train$HeartDisease))
+qplot(c(10, 9, 8, 7, 6), qda.cv.misclass, xlab = "No. of Predictors", ylab = "QDA LOOCV Misclassification Rate")
+
+1-mean(HD.qda10.cv$class != heart.train$HeartDisease)
+1-mean(HD.qda9.cv$class != heart.train$HeartDisease)
+1-mean(HD.qda8.cv$class != heart.train$HeartDisease)
+1-mean(HD.qda7.cv$class != heart.train$HeartDisease)
+1-mean(HD.qda6.cv$class != heart.train$HeartDisease)
+```
+
+### KNN
+
+``` {r}
+1-mean(HD.knn3 != heart.train$HeartDisease)
+1-mean(HD.knn5 != heart.train$HeartDisease)
+1-mean(HD.knn7 != heart.train$HeartDisease)
+1-mean(HD.knn9 != heart.train$HeartDisease)
+1-mean(HD.knn11 != heart.train$HeartDisease)
+1-mean(HD.knn13 != heart.train$HeartDisease)
+```
+
+```{r}
+1-mean(HD.knn3.cv != heart.train$HeartDisease)
+1-mean(HD.knn5.cv != heart.train$HeartDisease)
+1-mean(HD.knn7.cv != heart.train$HeartDisease)
+1-mean(HD.knn9.cv != heart.train$HeartDisease)
+1-mean(HD.knn11.cv != heart.train$HeartDisease)
+1-mean(HD.knn13.cv != heart.train$HeartDisease)
+```
+
+## The below problems were done without scaling. Thus, we reread the file and reperform loops.
+
+``` {r}
+heart.train <- read.csv("HDtrainNew.csv")
+heart.test <- read.csv("HDtestNoYNew.csv")
+heart.train[which(heart.train == "F", arr.ind = TRUE)] <- "Female"
+heart.train[which(heart.train == "M", arr.ind = TRUE)] <- "Male"
+heart.test[which(heart.test == "F", arr.ind = TRUE)] <- "Female"
+heart.test[which(heart.test == "M", arr.ind = TRUE)] <- "Male"
+heart.train <- heart.train[, -1]
+heart.test <- heart.test[, -1]
+heart.train[which(is.na(heart.train$smoking_status)), 18] <- "Unknown"
+heart.test[which(is.na(heart.test$smoking_status)), 18] <- "Unknown"
+for (i in 1:4220){
+  if(heart.train$Cholesterol[i] == 0) {
+    heart.train$Cholesterol[i] <- mean(heart.train$Cholesterol)
+  }
+}
+
+for (i in 1:4220){
+  if(heart.train$RestingBP[i] == 0) {
+    heart.train$RestingBP[i] <- mean(heart.train$RestingBP)
+  }
+}
+
+table(heart.train$ever_married) # Yes is most often
+for (i in 1:4220){
+  if(is.na(heart.train$ever_married[i])) {
+    heart.train$ever_married[i] <- "Yes"
+  }
+}
+
+table(heart.train$work_type) # works is most often
+for (i in 1:4220){
+  if(is.na(heart.train$work_type[i])) {
+    heart.train$work_type[i] <- "works"
+  }
+}
+
+table(heart.train$Residence_type) # Urban is most often
+for (i in 1:4220){
+  if(is.na(heart.train$Residence_type[i])) {
+    heart.train$Residence_type[i] <- "Urban"
+  }
+}
+
+for (i in 1:1808){
+  if(heart.test$Cholesterol[i] == 0) {
+    heart.test$Cholesterol[i] <- mean(heart.test$Cholesterol)
+  }
+}
+
+for (i in 1:1808){
+  if(heart.test$RestingBP[i] == 0) {
+    heart.test$RestingBP[i] <- mean(heart.test$RestingBP)
+  }
+}
+
+table(heart.test$ever_married)
+for (i in 1:1808){
+  if(is.na(heart.test$ever_married[i])) {
+    heart.test$ever_married[i] <- "Yes"
+  }
+}
+
+table(heart.test$work_type)
+for (i in 1:1808){
+  if(is.na(heart.test$work_type[i])) {
+    heart.test$work_type[i] <- "works"
+  }
+}
+
+table(heart.test$Residence_type)
+for (i in 1:1808){
+  if(is.na(heart.test$Residence_type[i])) {
+    heart.test$Residence_type[i] <- "Urban"
+  }
+}
+```
+
+## Random Forest
+
+```{r}
+library(randomForest)
+set.seed(1128)
+P.RFall <- randomForest(as.factor(HeartDisease) ~ ., data = heart.train, ntree = 100, mtry = 4, importantce = TRUE, nodesize = 2)
+
+varImpPlot(P.RFall)
+
+pred.RF <- predict(P.RFall, heart.train[,-20], type = "class")
+table(heart.train[, 20], pred.RF)
+pred.RF.test <- predict(P.RFall, heart.test, type = "class")
+new5 <- data.frame(Ob = c(1:1808), HeartDisease = pred.RF.test)
+write.csv(new5, "bkui_RF3.csv", row.names = FALSE)
+```
+
+## Logistic Regression
+
+```{r}
+HD.glm <- glm(as.factor(heart.train$HeartDisease) ~ .,
+              family = binomial(), data = heart.train)
+summary(HD.glm)
+
+heart.train.best <- heart.train[, c(1, 3, 5, 6, 8, 9, 10, 16, 19, 20)]
+HD.glm.best <- glm(as.factor(HeartDisease) ~ .,
+                   family = binomial(), data = heart.train.best)
+summary(HD.glm.best)
+pred.HD.glm.train.best <- predict(HD.glm.best, heart.train.best, type = "response")
+pred.HD.glm.train.best.out <- rep("No", 4220)
+pred.HD.glm.train.best.out[pred.HD.glm.train.best > 0.524] <- "Yes"
+table(heart.train$HeartDisease, pred.HD.glm.train.best.out) # confusion matrix
+mean(pred.HD.glm.train.best.out != heart.train$HeartDisease) # misclassifcation rate
+
+heart.test.best <- heart.test[, c(1, 3, 5, 6, 8, 9, 10, 16, 19)]
+pred.HD.glm.test.best <- predict(HD.glm.best, heart.test.best, type = "response")
+pred.HD.glm.test.best.out <- rep("No", 1808)
+pred.HD.glm.test.best.out[pred.HD.glm.test.best > 0.524] <- "Yes"
+df.best <- data.frame(Ob = c(1:1808), HeartDisease = pred.HD.glm.test.best.out)
+write.csv(df.best, "bkui_glm_best.csv", row.names = FALSE)
+```
+
+## Logistic Regression ROCR
+
+```{r}
+library(ROCR)
+pred <- prediction(pred.HD.glm.train.best, as.factor(heart.train$HeartDisease))
+eval<- performance(pred,"acc")
+plot(eval)
+str(eval)
+which.max(slot(eval,"y.values")[[1]])
+acc<-slot(eval,"y.values")[[1]][which.max(slot(eval,"y.values")[[1]])]
+acc
+cut<- slot(eval,"x.values")[[1]][which.max(slot(eval,"y.values")[[1]])]
+cut
+
+a <- combn(c(1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 16, 18, 19), m = 9)
+vec1 <- logical(0)
+vec2 <- logical(0)
+for (i in 1:ncol(a)){
+
+# glm best predictors
+heart.train.best <- heart.train[, c(a[,i], 20)]
+HD.glm.best <- glm(as.factor(HeartDisease) ~ .,
+family = binomial(), data = heart.train.best)
+summary(HD.glm.best)
+
+# glm best predictors training accuracy
+pred.HD.glm.train.best <- predict(HD.glm.best, heart.train.best, type = "response")
+pred <- prediction(pred.HD.glm.train.best, as.factor(heart.train$HeartDisease))
+eval<- performance(pred,"acc")
+b <- which.max(slot(eval,"y.values")[[1]])
+vec1[i] <-slot(eval,"y.values")[[1]][b]
+# vec2[i] <- slot(eval,"x.values")[[1]][b]
+}
+1 - max(vec1)
+which(max(vec1) == vec1)
+# vec2[which(max(vec1) == vec1)]
+a[, which(max(vec1) == vec1)]
+
+# glm best predictors
+heart.train.best <- heart.train[, c(a[, which(max(vec1) == vec1)], 20)]
+HD.glm.best <- glm(as.factor(HeartDisease) ~ .,
+                   family = binomial(), data = heart.train.best)
+summary(HD.glm.best)
+
+# glm best predictors training accuracy
+pred.HD.glm.train.best <- predict(HD.glm.best, heart.train.best, type = "response")
+pred.HD.glm.train.best.out <- rep("No", 4220)
+pred.HD.glm.train.best.out[pred.HD.glm.train.best > 0.5432] <- "Yes"
+table(heart.train$HeartDisease, pred.HD.glm.train.best.out) # confusion matrix
+mean(pred.HD.glm.train.best.out != heart.train$HeartDisease) # misclassifcation rate
+# glm best predictors testing
+
+heart.test.best <- heart.test[, c(a[, which(max(vec1) == vec1)])]
+pred.HD.glm.test.best <- predict(HD.glm.best, heart.test.best, type = "response")
+pred.HD.glm.test.best.out <- rep("No", 1808)
+pred.HD.glm.test.best.out[pred.HD.glm.test.best > 0.5432] <- "Yes"
+df.best <- data.frame(Ob = c(1:1808), HeartDisease = pred.HD.glm.test.best.out)
+write.csv(df.best, "bkui_glm_best_ROCR.csv", row.names = FALSE)
+```
+
+## Tuning Parameter
+
+```{r}
+num <- seq(.4, .6, by = .0001)
+rates <- logical(0)
+for (i in 1:length(num)) {
+  pred.HD.glm.train.best.out <- rep("No", 4220)
+  pred.HD.glm.train.best.out[pred.HD.glm.train.best > num[i]] <- "Yes"
+  rates[i] <- mean(pred.HD.glm.train.best.out != heart.train$HeartDisease)
+}
+which(min(rates) == rates)
+num[which(min(rates) == rates)]
+rates[which(min(rates) == rates)]
+```
+
+
+
+
